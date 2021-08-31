@@ -43,6 +43,10 @@
 #include <boost/format.hpp>
 
 #include "rosgraph_msgs/Clock.h"
+#include <std_msgs/String.h>
+#include <rosbag/BagInfo.h>
+
+#include <ros/callback_queue.h>
 
 #include <set>
 
@@ -77,6 +81,7 @@ ros::AdvertiseOptions createAdvertiseOptions(MessageInstance const& m, uint32_t 
 PlayerOptions::PlayerOptions() :
     prefix(""),
     quiet(false),
+    server_mode(false),
     start_paused(false),
     at_once(false),
     bag_time(false),
@@ -88,6 +93,7 @@ PlayerOptions::PlayerOptions() :
     has_time(false),
     loop(false),
     time(0.0f),
+    offset(0.0f),
     has_duration(false),
     duration(0.0f),
     keep_alive(false),
@@ -115,11 +121,17 @@ Player::Player(PlayerOptions const& options) :
     // by default (it can be toggled later via 't' from the keyboard).
     pause_for_topics_(options_.pause_topics.size() > 0),
     pause_change_requested_(false),
+    bag_change_requested_(false),
+    options_change_requested_(false),
     requested_pause_state_(false),
     terminal_modified_(false)
 {
-  ros::NodeHandle private_node_handle("~");
-  pause_service_ = private_node_handle.advertiseService("pause_playback", &Player::pauseCallback, this);
+  pause_service_ = private_node_handle_.advertiseService("pause_playback", &Player::pauseCallback, this);
+
+  if (options_.server_mode) {
+    open_bags_service_ = private_node_handle_.advertiseService("open_bags", &Player::bagsCallback, this);
+    play_options_service_ = private_node_handle_.advertiseService("play_options", &Player::optionsCallback, this);
+  }
 }
 
 Player::~Player() {
@@ -130,7 +142,107 @@ Player::~Player() {
 }
 
 void Player::publish() {
+
+  if (!options_.server_mode) {
     options_.check();
+
+    // open bags
+    ros::Time start, end;
+    std::vector<std::string> topic_names, topic_types;
+    std::vector<uint8_t> topic_latched;
+    openBags(start, end, topic_names, topic_types, topic_latched);
+
+    // prepare for playing
+    setupTerminal();
+    if (!node_handle_.ok())
+      return;
+    if (!options_.prefix.empty())
+      ROS_INFO_STREAM("Using prefix '" << options_.prefix << "'' for topics ");
+    if (!options_.quiet)
+      puts("");
+
+    // play bags
+    playBags(start);
+
+    // shutdown
+    ros::shutdown();
+    return;
+  }
+
+  while (node_handle_.ok()) {
+
+    // wait until open bag service arrived
+    ROS_INFO("Waiting for OpenBags request");
+    while (options_.bags.empty() && !bag_change_requested_ && node_handle_.ok()) {
+      ros::getGlobalCallbackQueue()->callAvailable(ros::WallDuration(0.1));
+    }
+    ROS_INFO("Stop waiting");
+    bag_change_requested_ = false;
+    options_change_requested_ = false;
+    if (!node_handle_.ok())
+      break;
+
+    // open bags
+    ros::Time start, end;
+    std::vector<std::string> topic_names, topic_types;
+    std::vector<uint8_t> topic_latched;
+    bool bags_opened_ = true;
+    std::string error_message;
+    try {
+      openBags(start, end, topic_names, topic_types, topic_latched);
+    } catch (const Exception &e) {
+      std::cerr << e.what() << std::endl;
+      bags_opened_ = false;
+      error_message = e.what();
+    }
+
+    // publish bag info
+    rosbag::BagInfo bag_info_msg;
+    bag_info_msg.start = start;
+    bag_info_msg.end = end;
+    bag_info_msg.topic_names = topic_names;
+    bag_info_msg.topic_types = topic_types;
+    bag_info_msg.topic_latched = topic_latched;
+    bag_info_msg.success = bags_opened_;
+    bag_info_msg.error_message = error_message;
+    bag_info_msg.bags = options_.bags;
+    bag_info_pub_ = private_node_handle_.advertise<rosbag::BagInfo>("bag_info", 1, true);
+    ros::WallDuration(0.2).sleep();
+    bag_info_pub_.publish(bag_info_msg);
+
+    while (bags_opened_ && !bag_change_requested_ && node_handle_.ok()) {
+      // wait until play options service arrived
+      ROS_INFO("Waiting for PlayOptions request");
+      while (!bag_change_requested_ && !options_change_requested_ && node_handle_.ok()) {
+        ros::getGlobalCallbackQueue()->callAvailable(ros::WallDuration(0.1));
+      }
+      ROS_INFO("Stop waiting");
+      options_change_requested_ = false;
+      if (bag_change_requested_ || !node_handle_.ok())
+        break;
+
+      // prepare for playing
+      setupTerminal();
+      if (!options_.prefix.empty())
+        ROS_INFO_STREAM("Using prefix '" << options_.prefix << "'' for topics ");
+      if (!options_.quiet)
+        puts("");
+
+      // play bags
+      playBags(start);
+      rate_control_sub_.shutdown();
+      publishers_.clear();
+      advertised_pause_topic_subs_.clear();
+    }
+    bag_info_pub_.shutdown();
+    bags_.clear();
+  }
+}
+
+void Player::openBags(ros::Time &full_initial_time, ros::Time &full_end_time,
+                      std::vector<std::string> &topic_names,
+                      std::vector<std::string> &topic_types,
+                      std::vector<uint8_t> &topic_latched) {
 
     // Open all the bag files
     for (string const& filename : options_.bags) {
@@ -148,27 +260,23 @@ void Player::publish() {
         }
     }
 
-    setupTerminal();
-
-    if (!node_handle_.ok())
-      return;
-
-    if (!options_.prefix.empty())
-    {
-      ROS_INFO_STREAM("Using prefix '" << options_.prefix << "'' for topics ");
-    }
-
-    if (!options_.quiet)
-      puts("");
-    
     // Publish all messages in the bags
     View full_view;
     for (shared_ptr<Bag>& bag : bags_)
         full_view.addQuery(*bag);
 
-    const auto full_initial_time = full_view.getBeginTime();
+    full_initial_time = full_view.getBeginTime();
+    full_end_time = full_view.getEndTime();
+    for (const auto& c : full_view.getConnections()) {
+        topic_names.push_back(c->topic);
+        topic_types.push_back(c->datatype);
+        topic_latched.push_back(isLatching(c));
+    }
+}
 
+void Player::playBags(const ros::Time& full_initial_time) {
     const auto initial_time = full_initial_time + ros::Duration(options_.time);
+    const auto offset_time = initial_time + ros::Duration(options_.offset);
 
     ros::Time finish_time = ros::TIME_MAX;
     if (options_.has_duration)
@@ -177,21 +285,27 @@ void Player::publish() {
     }
 
     View view;
+    View offset_view;
     TopicQuery topics(options_.topics);
 
     if (options_.topics.empty())
     {
-      for (shared_ptr<Bag>& bag : bags_)
+      for (shared_ptr<Bag>& bag : bags_) {
         view.addQuery(*bag, initial_time, finish_time);
+        offset_view.addQuery(*bag, offset_time, finish_time);
+      }
     } else {
-      for (shared_ptr<Bag>& bag : bags_)
+      for (shared_ptr<Bag>& bag : bags_) {
         view.addQuery(*bag, topics, initial_time, finish_time);
+        offset_view.addQuery(*bag, topics, offset_time, finish_time);
+      }
     }
 
     if (view.size() == 0)
     {
       std::cerr << "No messages to play on specified topics.  Exiting." << std::endl;
-      ros::shutdown();
+      if (!options_.server_mode)
+        ros::shutdown();
       return;
     }
 
@@ -228,18 +342,18 @@ void Player::publish() {
 
     std::cout << std::endl << "Hit space to toggle paused, or 's' to step." << std::endl;
 
-    // Publish last message from latch topics if the options_.time > 0.0:
-    if (options_.time > 0.0) {
+    // Publish last message from latch topics if the options_.time + options_.offset > 0.0:
+    if (options_.time + options_.offset > 0.0) {
         // Retrieve all the latch topics before the initial time and create publishers if needed:
         View full_latch_view;
 
         if (options_.topics.empty()) {
             for (const auto& bag : bags_) {
-                full_latch_view.addQuery(*bag, full_initial_time, initial_time);
+                full_latch_view.addQuery(*bag, full_initial_time, offset_time);
             }
         } else {
             for (const auto& bag : bags_) {
-                full_latch_view.addQuery(*bag, topics, full_initial_time, initial_time);
+                full_latch_view.addQuery(*bag, topics, full_initial_time, offset_time);
             }
         }
 
@@ -257,6 +371,8 @@ void Player::publish() {
 
         if (options_.wait_for_subscribers){
             waitForSubscribers();
+            if(bag_change_requested_ || options_change_requested_ || !node_handle_.ok())
+              return;
         }
 
         // Publish the last message of each latch topic per callerid:
@@ -266,7 +382,7 @@ void Player::publish() {
 
             View latch_view;
             for (const auto& bag : bags_) {
-                latch_view.addQuery(*bag, TopicQuery(topic), full_initial_time, initial_time);
+                latch_view.addQuery(*bag, TopicQuery(topic), full_initial_time, offset_time);
             }
 
             auto last_message = latch_view.end();
@@ -285,6 +401,8 @@ void Player::publish() {
         }
     } else if (options_.wait_for_subscribers) {
         waitForSubscribers();
+        if(bag_change_requested_ || options_change_requested_ || !node_handle_.ok())
+          return;
     }
 
     while (true) {
@@ -313,16 +431,27 @@ void Player::publish() {
 
         paused_time_ = now_wt;
 
+        View* cur_view = &view;
+        if (options_.offset > 0.f && offset_view.size() > 0) {
+          cur_view = &offset_view;
+          last_rate_control_ = offset_view.begin()->getTime();
+          time_publisher_.setTime(offset_view.begin()->getTime());
+          time_translator_.shift(- ros::Duration(options_.offset) * (1.0 / options_.time_scale));
+        }
+        options_.offset = 0.f;
+
         // Call do-publish for each message
-        for (const MessageInstance& m : view) {
+        for (const MessageInstance& m : *cur_view) {
             if (!node_handle_.ok())
                 break;
+            if (bag_change_requested_ || options_change_requested_)
+              return;
 
             doPublish(m);
         }
 
         if (options_.keep_alive)
-            while (node_handle_.ok())
+            while (!bag_change_requested_ && !options_change_requested_ && node_handle_.ok())
                 doKeepAlive();
 
         if (!node_handle_.ok()) {
@@ -338,8 +467,6 @@ void Player::publish() {
         // are not overtaken by small messages at the beginning, after a loop.
         ros::WallDuration(0.2).sleep();
     }
-
-    ros::shutdown();
 }
 
 void Player::updateRateTopicTime(const ros::MessageEvent<topic_tools::ShapeShifter const>& msg_event)
@@ -423,6 +550,64 @@ bool Player::pauseCallback(std_srvs::SetBool::Request &req, std_srvs::SetBool::R
   return true;
 }
 
+bool Player::bagsCallback(rosbag::OpenBags::Request &req, rosbag::OpenBags::Response &res)
+{
+  bag_change_requested_ = true;
+  options_.bags = req.bag_files;
+  res.success = true;
+  res.message = std::string("Opening bags");
+  return true;
+}
+
+bool Player::optionsCallback(rosbag::PlayOptions::Request &req, rosbag::PlayOptions::Response &res)
+{
+  if(req.shutdown)
+    ros::shutdown();
+
+  options_change_requested_ = true;
+  paused_ = req.pause;
+
+  options_.server_mode = true;
+  options_.try_future = false;
+  options_.prefix = req.prefix;
+  options_.quiet = req.quiet;
+  options_.start_paused = req.pause;
+  options_.at_once = req.immediate;
+  options_.bag_time = req.clock;
+  options_.bag_time_frequency = req.hz;
+  options_.time_scale = req.rate;
+  options_.queue_size = req.queue;
+  options_.advertise_sleep = ros::WallDuration(req.delay);
+  options_.loop = req.loop;
+  options_.has_time = true;
+  options_.time = req.start;
+  options_.offset = req.offset;
+  options_.has_duration = true;
+  options_.duration = req.duration;
+  options_.keep_alive = req.keep_alive;
+  options_.wait_for_subscribers = req.wait_for_subscribers;
+  options_.rate_control_topic = req.rate_control_topic;
+  options_.rate_control_max_delay = req.rate_control_max_delay;
+  options_.skip_empty = ros::Duration(req.skip_empty);
+  options_.topics = req.topics;
+  options_.pause_topics = req.pause_topics;
+  options_.advertised_pause_topics = req.advertised_pause_topics;
+  options_.pause_after_topic = req.pause_after_topic;
+
+  pause_for_topics_ = !options_.pause_topics.empty();
+
+  try {
+    options_.check();
+  } catch (const Exception &e) {
+    res.success = false;
+    res.message = e.what();
+  }
+
+  res.success = true;
+  res.message = std::string("Changing play options");
+  return true;
+}
+
 void Player::processPause(const bool paused, ros::WallTime &horizon)
 {
   paused_ = paused;
@@ -455,6 +640,9 @@ void Player::waitForSubscribers() const
                 return pub.second.getNumSubscribers() > 0;
             });
         ros::WallDuration(0.1).sleep();
+        ros::spinOnce();
+        if(bag_change_requested_ || options_change_requested_ || !node_handle_.ok())
+          return;
     }
     std::cout << "Finished waiting for subscribers." << std::endl;
 }
@@ -602,12 +790,16 @@ void Player::doPublish(MessageInstance const& m) {
                     printTime();
                     time_publisher_.runStalledClock(ros::WallDuration(.1));
                     ros::spinOnce();
+                    if (bag_change_requested_ || options_change_requested_)
+                        return;
                 }
                 else if (delayed_)
                 {
                     printTime();
                     time_publisher_.runStalledClock(ros::WallDuration(.1));
                     ros::spinOnce();
+                    if (bag_change_requested_ || options_change_requested_)
+                        return;
                     // You need to check the rate here too.
                     if(rate_control_sub_ == NULL || (time_publisher_.getTime() - last_rate_control_).toSec() <= options_.rate_control_max_delay) {
                         delayed_ = false;
@@ -635,6 +827,9 @@ void Player::doPublish(MessageInstance const& m) {
         printTime();
         time_publisher_.runClock(ros::WallDuration(.1));
         ros::spinOnce();
+
+        if (bag_change_requested_ || options_change_requested_)
+            return;
     }
 
     pub_iter->second.publish(m);
@@ -691,6 +886,8 @@ void Player::doKeepAlive() {
                     printTime();
                     time_publisher_.runStalledClock(ros::WallDuration(.1));
                     ros::spinOnce();
+                    if (bag_change_requested_ || options_change_requested_)
+                        return;
                 }
                 else
                     charsleftorpaused = false;
@@ -700,6 +897,9 @@ void Player::doKeepAlive() {
         printTime();
         time_publisher_.runClock(ros::WallDuration(.1));
         ros::spinOnce();
+
+        if (bag_change_requested_ || options_change_requested_)
+            return;
     }
 }
 

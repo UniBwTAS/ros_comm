@@ -255,6 +255,7 @@ def play_cmd(argv):
     parser.add_option("-l", "--loop",         dest="loop",       default=False, action="store_true", help="loop playback")
     parser.add_option("-k", "--keep-alive",   dest="keep_alive", default=False, action="store_true", help="keep alive past end of bag (useful for publishing latched topics)")
     parser.add_option("--try-future-version", dest="try_future", default=False, action="store_true", help="still try to open a bag file, even if the version number is not known to the player")
+    parser.add_option("--server",             dest="server",     default=False, action="store_true", help="interactively control play back by OpenBags and PlayOptions requests")
     parser.add_option("--topics", dest="topics", default=[],  callback=handle_topics, action="callback", help="topics to play back")
     parser.add_option("--pause-topics", dest="pause_topics", default=[],  callback=handle_pause_topics, action="callback", help="topics to pause on during playback")
     parser.add_option("--pause-after-topic", dest="pause_after_topic", default=False,  action="store_true", help="pause after message on pause-topic (by default it pauses before)")
@@ -269,7 +270,7 @@ def play_cmd(argv):
     if options.bags:
         args.append(options.bags)
 
-    if len(args) == 0:
+    if len(args) == 0 and not options.server:
         parser.error('You must specify at least 1 bag file to play back.')
 
     playpath = roslib.packages.find_node('rosbag', 'play')
@@ -286,6 +287,7 @@ def play_cmd(argv):
     if options.loop:       cmd.extend(["--loop"])
     if options.keep_alive: cmd.extend(["--keep-alive"])
     if options.try_future: cmd.extend(["--try-future-version"])
+    if options.server:     cmd.extend(["--server"])
     if options.wait_for_subscribers: cmd.extend(["--wait-for-subscribers"])
 
     if options.clock:
@@ -312,7 +314,7 @@ def play_cmd(argv):
         cmd.extend(['--advertised-pause-topics'] + options.advertised_pause_topics)
 
     # prevent bag files to be passed as --topics or --pause-topics or --advertised-pause-topics
-    if options.topics or options.pause_topics or options.advertised_pause_topics:
+    if (options.topics or options.pause_topics or options.advertised_pause_topics) and len(args) > 0:
         cmd.extend(['--bags'])
 
     cmd.extend(args)

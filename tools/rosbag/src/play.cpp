@@ -67,6 +67,7 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
       ("wait-for-subscribers", "wait for at least one subscriber on each topic before publishing")
       ("rate-control-topic", po::value<std::string>(), "watch the given topic, and if the last publish was more than <rate-control-max-delay> ago, wait until the topic publishes again to continue playback")
       ("rate-control-max-delay", po::value<float>()->default_value(1.0f), "maximum time difference from <rate-control-topic> before pausing")
+      ("server", "interactively control play back by OpenBags and PlayOptions requests")
       ;
 
     po::positional_options_description p;
@@ -163,6 +164,9 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
     if (vm.count("rate-control-max-delay"))
       opts.rate_control_max_delay = vm["rate-control-max-delay"].as<float>();
 
+    if (vm.count("server"))
+      opts.server_mode = true;
+
     if (vm.count("bags"))
     {
       std::vector<std::string> bags = vm["bags"].as< std::vector<std::string> >();
@@ -170,7 +174,7 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
            i != bags.end();
            i++)
           opts.bags.push_back(*i);
-    } else {
+    } else if (!vm.count("server")) {
       if (vm.count("topics") || vm.count("pause-topics") || vm.count("advertised-pause-topics"))
         throw ros::Exception("When using --topics, --pause-topics or --advertised-pause-topics, --bags "
           "should be specified to list bags.");

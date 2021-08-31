@@ -5,7 +5,7 @@ if(NOT WIN32)
   set_directory_properties(PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 endif()
 
-find_package(catkin REQUIRED COMPONENTS rosbag_storage rosconsole roscpp std_srvs topic_tools xmlrpcpp)
+find_package(catkin REQUIRED COMPONENTS rosbag_storage rosconsole roscpp std_srvs std_msgs topic_tools xmlrpcpp rospy std_msgs message_generation)
 find_package(Boost REQUIRED COMPONENTS date_time filesystem program_options regex thread)
 find_package(BZip2 REQUIRED)
 
@@ -18,10 +18,29 @@ include_directories(include ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS}
   ${BZIP2_INCLUDE_DIR}
 )
 
+# Generate messages in the 'msg' folder
+add_message_files(
+  FILES
+  BagInfo.msg
+)
+
+# Generate services in the 'srv' folder
+add_service_files(
+    FILES
+    OpenBags.srv
+    PlayOptions.srv
+)
+
+# Generate added messages and services with any dependencies listed here
+generate_messages(
+    DEPENDENCIES
+    std_msgs std_srvs
+)
+
 catkin_package(
   LIBRARIES rosbag
   INCLUDE_DIRS include
-  CATKIN_DEPENDS rosbag_storage rosconsole roscpp std_srvs topic_tools xmlrpcpp)
+  CATKIN_DEPENDS rosbag_storage rosconsole roscpp std_srvs std_msgs topic_tools xmlrpcpp)
 
 add_library(rosbag
   src/player.cpp
@@ -37,6 +56,8 @@ target_link_libraries(record rosbag)
 
 add_executable(play src/play.cpp)
 target_link_libraries(play rosbag)
+add_dependencies(play ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 
 if(NOT WIN32)
   add_executable(encrypt src/encrypt.cpp)

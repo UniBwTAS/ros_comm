@@ -50,6 +50,8 @@
 #include <ros/ros.h>
 #include <ros/time.h>
 #include <std_srvs/SetBool.h>
+#include <rosbag/PlayOptions.h>
+#include <rosbag/OpenBags.h>
 
 #include "rosbag/bag.h"
 
@@ -79,6 +81,7 @@ struct ROSBAG_DECL PlayerOptions
 
     std::string prefix;
     bool     quiet;
+    bool     server_mode;
     bool     start_paused;
     bool     at_once;
     bool     bag_time;
@@ -90,6 +93,7 @@ struct ROSBAG_DECL PlayerOptions
     bool     has_time;
     bool     loop;
     float    time;
+    float    offset;
     bool     has_duration;
     float    duration;
     bool     keep_alive;
@@ -177,6 +181,12 @@ public:
     void publish();
 
 private:
+    void openBags(ros::Time &full_initial_time, ros::Time &full_end_time,
+                  std::vector<std::string> &topic_names,
+                  std::vector<std::string> &topic_types,
+                  std::vector<uint8_t> &topic_latched);
+    void playBags(const ros::Time& full_initial_time);
+
     int readCharFromStdin();
     void setupTerminal();
     void restoreTerminal();
@@ -193,6 +203,10 @@ private:
 
     bool pauseCallback(std_srvs::SetBool::Request &req, std_srvs::SetBool::Response &res);
 
+    bool optionsCallback(rosbag::PlayOptions::Request &req, rosbag::PlayOptions::Response &res);
+
+    bool bagsCallback(rosbag::OpenBags::Request &req, rosbag::OpenBags::Response &res);
+
     void processPause(const bool paused, ros::WallTime &horizon);
 
     void waitForSubscribers() const;
@@ -205,8 +219,13 @@ private:
     PlayerOptions options_;
 
     ros::NodeHandle node_handle_;
+    ros::NodeHandle private_node_handle_{"~"};
 
     ros::ServiceServer pause_service_;
+    ros::ServiceServer open_bags_service_;
+    ros::ServiceServer play_options_service_;
+
+    ros::Publisher bag_info_pub_;
 
     std::vector<ros::Subscriber> advertised_pause_topic_subs_;
 
@@ -216,6 +235,8 @@ private:
     bool pause_for_topics_;
 
     bool pause_change_requested_;
+    bool bag_change_requested_;
+    bool options_change_requested_;
 
     bool requested_pause_state_;
 

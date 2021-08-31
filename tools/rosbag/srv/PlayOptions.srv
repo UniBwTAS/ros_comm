@@ -1,0 +1,27 @@
+string[] topics
+string[] pause_topics
+string[] advertised_pause_topics
+float32 start
+float32 offset
+float32 duration
+float32 rate
+bool pause
+bool loop
+bool clock
+float32 hz
+bool quiet
+string prefix
+bool immediate
+int32 queue
+float32 delay
+float32 skip_empty
+bool keep_alive
+bool wait_for_subscribers
+string rate_control_topic
+float32 rate_control_max_delay
+bool pause_after_topic
+
+bool shutdown
+---
+bool success
+string message
