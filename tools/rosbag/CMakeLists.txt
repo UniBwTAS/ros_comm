@@ -22,6 +22,7 @@ include_directories(include ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS}
 add_message_files(
   FILES
   BagInfo.msg
+  MessageQuery.msg
 )
 
 # Generate services in the 'srv' folder
@@ -29,6 +30,7 @@ add_service_files(
     FILES
     OpenBags.srv
     PlayOptions.srv
+    QueryOptions.srv
 )
 
 # Generate added messages and services with any dependencies listed here

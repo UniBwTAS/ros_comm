@@ -131,6 +131,9 @@ Player::Player(PlayerOptions const& options) :
   if (options_.server_mode) {
     open_bags_service_ = private_node_handle_.advertiseService("open_bags", &Player::bagsCallback, this);
     play_options_service_ = private_node_handle_.advertiseService("play_options", &Player::optionsCallback, this);
+    query_options_service_ = private_node_handle_.advertiseService("query_options", &Player::queryOptionsCallback, this);
+
+    message_query_sub_ = private_node_handle_.subscribe("message_query", 1, &Player::messageQueryCallback, this);
   }
 }
 
@@ -272,6 +275,7 @@ void Player::openBags(ros::Time &full_initial_time, ros::Time &full_end_time,
         topic_types.push_back(c->datatype);
         topic_latched.push_back(isLatching(c));
     }
+    full_initial_time_ = full_initial_time;
 }
 
 void Player::playBags(const ros::Time& full_initial_time) {
@@ -606,6 +610,58 @@ bool Player::optionsCallback(rosbag::PlayOptions::Request &req, rosbag::PlayOpti
   res.success = true;
   res.message = std::string("Changing play options");
   return true;
+}
+
+bool Player::queryOptionsCallback(rosbag::QueryOptions::Request &req, rosbag::QueryOptions::Response &res)
+{
+  query_publishers_.clear();
+
+  if (bags_.empty()) {
+    res.message = "No bags opened yet.";
+    res.success = false;
+    return true;
+  }
+
+  query_options_ = req;
+
+  View full_view;
+  for (shared_ptr<Bag> &bag : bags_)
+    full_view.addQuery(*bag);
+
+  for (const ConnectionInfo* c : full_view.getConnections())
+  {
+    for (const auto& t : req.topics)
+    {
+      if(t == c->topic)
+      {
+        auto pub_iter = query_publishers_.find(c->topic);
+        if (pub_iter == query_publishers_.end()) {
+          ros::AdvertiseOptions opts = createAdvertiseOptions(c, 1, private_node_handle_.getNamespace());
+          ros::Publisher pub = node_handle_.advertise(opts);
+          query_publishers_.insert(query_publishers_.begin(), pair<string, ros::Publisher>(c->topic, pub));
+        }
+      }
+    }
+  }
+
+  res.success = true;
+  return true;
+}
+
+void Player::messageQueryCallback(const rosbag::MessageQueryConstPtr &msg) {
+  ros::Time start = full_initial_time_ + ros::Duration(msg->offset);
+  ros::Time end = start + ros::Duration(msg->range);
+
+  for (const auto &t : query_options_.topics) {
+    View query_view;
+    for (shared_ptr<Bag> &bag : bags_)
+      query_view.addQuery(*bag, TopicQuery(t), start, end);
+
+    if (query_view.size() > 0) {
+      auto pub_iter = query_publishers_.find(query_view.begin()->getTopic());
+      pub_iter->second.publish(*query_view.begin());
+    }
+  }
 }
 
 void Player::processPause(const bool paused, ros::WallTime &horizon)

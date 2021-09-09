@@ -52,6 +52,8 @@
 #include <std_srvs/SetBool.h>
 #include <rosbag/PlayOptions.h>
 #include <rosbag/OpenBags.h>
+#include <rosbag/QueryOptions.h>
+#include <rosbag/MessageQuery.h>
 
 #include "rosbag/bag.h"
 
@@ -207,6 +209,10 @@ private:
 
     bool bagsCallback(rosbag::OpenBags::Request &req, rosbag::OpenBags::Response &res);
 
+    bool queryOptionsCallback(rosbag::QueryOptions::Request &req, rosbag::QueryOptions::Response &res);
+
+    void messageQueryCallback(const rosbag::MessageQueryConstPtr& msg);
+
     void processPause(const bool paused, ros::WallTime &horizon);
 
     void waitForSubscribers() const;
@@ -224,10 +230,14 @@ private:
     ros::ServiceServer pause_service_;
     ros::ServiceServer open_bags_service_;
     ros::ServiceServer play_options_service_;
+    ros::ServiceServer query_options_service_;
 
     ros::Publisher bag_info_pub_;
 
     std::vector<ros::Subscriber> advertised_pause_topic_subs_;
+
+    ros::Subscriber message_query_sub_;
+    rosbag::QueryOptions::Request query_options_;
 
     bool paused_;
     bool delayed_;
@@ -243,10 +253,13 @@ private:
     ros::Subscriber rate_control_sub_;
     ros::Time last_rate_control_;
 
+    ros::Time full_initial_time_;
+
     ros::WallTime paused_time_;
 
     std::vector<boost::shared_ptr<Bag> >  bags_;
     PublisherMap publishers_;
+    PublisherMap query_publishers_;
 
     // Terminal
     bool    terminal_modified_;
