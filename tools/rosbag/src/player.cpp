@@ -331,6 +331,10 @@ void Player::publish() {
             std::cout << std::endl << "Done." << std::endl;
             break;
         }
+
+        // add small delay, to ensure that large messages at the end of a bag
+        // are not overtaken by small messages at the beginning, after a loop.
+        ros::WallDuration(0.2).sleep();
     }
 
     ros::shutdown();
