@@ -61,6 +61,7 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
       ("try-future-version", "still try to open a bag file, even if the version is not known to the player")
       ("topics", po::value< std::vector<std::string> >()->multitoken(), "topics to play back")
       ("pause-topics", po::value< std::vector<std::string> >()->multitoken(), "topics to pause playback on")
+      ("pause-after-topic", "pause after message on pause-topic (by default it pauses before)")
       ("bags", po::value< std::vector<std::string> >(), "bag files to play back from")
       ("wait-for-subscribers", "wait for at least one subscriber on each topic before publishing")
       ("rate-control-topic", po::value<std::string>(), "watch the given topic, and if the last publish was more than <rate-control-max-delay> ago, wait until the topic publishes again to continue playback")
@@ -142,6 +143,9 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
            i++)
         opts.pause_topics.push_back(*i);
     }
+    
+    if (vm.count("pause-after-topic"))
+      opts.pause_after_topic = true;
 
     if (vm.count("rate-control-topic"))
       opts.rate_control_topic = vm["rate-control-topic"].as<std::string>();

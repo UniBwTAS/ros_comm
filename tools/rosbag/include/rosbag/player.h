@@ -94,6 +94,7 @@ struct ROSBAG_DECL PlayerOptions
     float    duration;
     bool     keep_alive;
     bool     wait_for_subscribers;
+    bool     pause_after_topic;
     std::string rate_control_topic;
     float    rate_control_max_delay;
     ros::Duration skip_empty;

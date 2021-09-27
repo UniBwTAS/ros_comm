@@ -245,6 +245,7 @@ def play_cmd(argv):
     parser.add_option("--try-future-version", dest="try_future", default=False, action="store_true", help="still try to open a bag file, even if the version number is not known to the player")
     parser.add_option("--topics", dest="topics", default=[],  callback=handle_topics, action="callback", help="topics to play back")
     parser.add_option("--pause-topics", dest="pause_topics", default=[],  callback=handle_pause_topics, action="callback", help="topics to pause on during playback")
+    parser.add_option("--pause-after-topic", dest="pause_after_topic", default=False,  action="store_true", help="pause after message on pause-topic (by default it pauses before)")
     parser.add_option("--bags",  help="bags files to play back from")
     parser.add_option("--wait-for-subscribers",  dest="wait_for_subscribers", default=False, action="store_true", help="wait for at least one subscriber on each topic before publishing")
     parser.add_option("--rate-control-topic", dest="rate_control_topic", default='', type='str', help="watch the given topic, and if the last publish was more than <rate-control-max-delay> ago, wait until the topic publishes again to continue playback")
@@ -291,6 +292,8 @@ def play_cmd(argv):
 
     if options.pause_topics:
         cmd.extend(['--pause-topics'] + options.pause_topics)
+
+    if options.pause_after_topic: cmd.extend(["--pause-after-topic"])
 
     # prevent bag files to be passed as --topics or --pause-topics
     if options.topics or options.pause_topics:

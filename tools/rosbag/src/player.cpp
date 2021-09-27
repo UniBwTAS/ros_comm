@@ -92,6 +92,7 @@ PlayerOptions::PlayerOptions() :
     duration(0.0f),
     keep_alive(false),
     wait_for_subscribers(false),
+    pause_after_topic(false),
     rate_control_topic(""),
     rate_control_max_delay(1.0f),
     skip_empty(ros::DURATION_MAX)
@@ -516,6 +517,7 @@ void Player::doPublish(MessageInstance const& m) {
       return;
     }
 
+    bool pause_after_publish = false;
     if (pause_for_topics_)
     {
         for (std::vector<std::string>::iterator i = options_.pause_topics.begin();
@@ -524,8 +526,15 @@ void Player::doPublish(MessageInstance const& m) {
         {
             if (topic == *i)
             {
-                paused_ = true;
-                paused_time_ = ros::WallTime::now();
+                if (!options_.pause_after_topic)
+                {
+                    paused_ = true;
+                    paused_time_ = ros::WallTime::now();
+                }
+                else
+                {
+                    pause_after_publish = true;
+                }
             }
         }
     }
@@ -628,6 +637,10 @@ void Player::doPublish(MessageInstance const& m) {
     }
 
     pub_iter->second.publish(m);
+
+    if (pause_after_publish)
+        processPause(true, horizon);
+
 }
 
 
