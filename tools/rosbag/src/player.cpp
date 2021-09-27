@@ -220,6 +220,7 @@ void Player::publish() {
         std::cout << " done." << std::endl;
     }
 
+    subscribeToAdvertisedPauseTopics();
 
     std::cout << "Waiting " << options_.advertise_sleep.toSec() << " seconds after advertising topics..." << std::flush;
     options_.advertise_sleep.sleep();
@@ -795,6 +796,26 @@ int Player::readCharFromStdin() {
         return EOF;
     return getc(stdin);
 #endif
+}
+
+void Player::subscribeToAdvertisedPauseTopics()
+{
+    for (const std::string &t : options_.advertised_pause_topics)
+    {
+        ROS_INFO("Subscribing to %s", t.c_str());
+
+        ros::WallTime dummy;
+
+        ros::SubscribeOptions ops;
+        ops.topic = t;
+        ops.queue_size = 5;
+        ops.md5sum = ros::message_traits::md5sum<topic_tools::ShapeShifter>();
+        ops.datatype = ros::message_traits::datatype<topic_tools::ShapeShifter>();
+        ops.helper = boost::make_shared<ros::SubscriptionCallbackHelperT<const ros::MessageEvent<topic_tools::ShapeShifter const> &>>(boost::bind(&Player::processPause, this, true, dummy));
+        ops.transport_hints = ros::TransportHints().tcp().tcpNoDelay(true);
+        ros::Subscriber sub = node_handle_.subscribe(ops);
+        advertised_pause_topic_subs_.push_back(sub);
+    }
 }
 
 TimePublisher::TimePublisher() : time_scale_(1.0)

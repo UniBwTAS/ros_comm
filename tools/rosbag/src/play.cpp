@@ -62,6 +62,7 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
       ("topics", po::value< std::vector<std::string> >()->multitoken(), "topics to play back")
       ("pause-topics", po::value< std::vector<std::string> >()->multitoken(), "topics to pause playback on")
       ("pause-after-topic", "pause after message on pause-topic (by default it pauses before)")
+      ("advertised-pause-topics", po::value< std::vector<std::string> >()->multitoken(), "advertised (not included) topics to pause playback on")
       ("bags", po::value< std::vector<std::string> >(), "bag files to play back from")
       ("wait-for-subscribers", "wait for at least one subscriber on each topic before publishing")
       ("rate-control-topic", po::value<std::string>(), "watch the given topic, and if the last publish was more than <rate-control-max-delay> ago, wait until the topic publishes again to continue playback")
@@ -146,6 +147,15 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
     
     if (vm.count("pause-after-topic"))
       opts.pause_after_topic = true;
+    
+    if (vm.count("advertised-pause-topics"))
+    {
+      std::vector<std::string> advertised_pause_topics = vm["advertised-pause-topics"].as< std::vector<std::string> >();
+      for (std::vector<std::string>::iterator i = advertised_pause_topics.begin();
+           i != advertised_pause_topics.end();
+           i++)
+        opts.advertised_pause_topics.push_back(*i);
+    }
 
     if (vm.count("rate-control-topic"))
       opts.rate_control_topic = vm["rate-control-topic"].as<std::string>();
@@ -161,8 +171,8 @@ rosbag::PlayerOptions parseOptions(int argc, char** argv) {
            i++)
           opts.bags.push_back(*i);
     } else {
-      if (vm.count("topics") || vm.count("pause-topics"))
-        throw ros::Exception("When using --topics or --pause-topics, --bags "
+      if (vm.count("topics") || vm.count("pause-topics") || vm.count("advertised-pause-topics"))
+        throw ros::Exception("When using --topics, --pause-topics or --advertised-pause-topics, --bags "
           "should be specified to list bags.");
       throw ros::Exception("You must specify at least one bag to play back.");
     }

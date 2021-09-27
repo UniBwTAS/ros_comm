@@ -102,6 +102,7 @@ struct ROSBAG_DECL PlayerOptions
     std::vector<std::string> bags;
     std::vector<std::string> topics;
     std::vector<std::string> pause_topics;
+    std::vector<std::string> advertised_pause_topics;
 };
 
 
@@ -196,6 +197,8 @@ private:
 
     void waitForSubscribers() const;
 
+    void subscribeToAdvertisedPauseTopics();
+
 private:
     typedef std::map<std::string, ros::Publisher> PublisherMap;
 
@@ -204,6 +207,8 @@ private:
     ros::NodeHandle node_handle_;
 
     ros::ServiceServer pause_service_;
+
+    std::vector<ros::Subscriber> advertised_pause_topic_subs_;
 
     bool paused_;
     bool delayed_;

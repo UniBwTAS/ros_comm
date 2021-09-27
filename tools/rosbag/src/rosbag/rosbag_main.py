@@ -225,6 +225,18 @@ def handle_pause_topics(option, opt_str, value, parser):
     del parser.rargs[:len(pause_topics)]
 
 
+def handle_advertised_pause_topics(option, opt_str, value, parser):
+    advertised_pause_topics = []
+    for arg in parser.rargs:
+        if arg[:2] == "--" and len(arg) > 2:
+            break
+        if arg[:1] == "-" and len(arg) > 1:
+            break
+        advertised_pause_topics.append(arg)
+    parser.values.advertised_pause_topics.extend(advertised_pause_topics)
+    del parser.rargs[:len(advertised_pause_topics)]
+
+
 def play_cmd(argv):
     parser = optparse.OptionParser(usage="rosbag play BAGFILE1 [BAGFILE2 BAGFILE3 ...]",
                                    description="Play back the contents of one or more bag files in a time-synchronized fashion.")
@@ -246,6 +258,7 @@ def play_cmd(argv):
     parser.add_option("--topics", dest="topics", default=[],  callback=handle_topics, action="callback", help="topics to play back")
     parser.add_option("--pause-topics", dest="pause_topics", default=[],  callback=handle_pause_topics, action="callback", help="topics to pause on during playback")
     parser.add_option("--pause-after-topic", dest="pause_after_topic", default=False,  action="store_true", help="pause after message on pause-topic (by default it pauses before)")
+    parser.add_option("--advertised-pause-topics", dest="advertised_pause_topics", default=[],  callback=handle_advertised_pause_topics, action="callback", help="advertised (not included) topics to pause on during playback")
     parser.add_option("--bags",  help="bags files to play back from")
     parser.add_option("--wait-for-subscribers",  dest="wait_for_subscribers", default=False, action="store_true", help="wait for at least one subscriber on each topic before publishing")
     parser.add_option("--rate-control-topic", dest="rate_control_topic", default='', type='str', help="watch the given topic, and if the last publish was more than <rate-control-max-delay> ago, wait until the topic publishes again to continue playback")
@@ -295,8 +308,11 @@ def play_cmd(argv):
 
     if options.pause_after_topic: cmd.extend(["--pause-after-topic"])
 
-    # prevent bag files to be passed as --topics or --pause-topics
-    if options.topics or options.pause_topics:
+    if options.advertised_pause_topics:
+        cmd.extend(['--advertised-pause-topics'] + options.advertised_pause_topics)
+
+    # prevent bag files to be passed as --topics or --pause-topics or --advertised-pause-topics
+    if options.topics or options.pause_topics or options.advertised_pause_topics:
         cmd.extend(['--bags'])
 
     cmd.extend(args)
