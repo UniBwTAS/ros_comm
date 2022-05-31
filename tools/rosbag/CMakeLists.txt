@@ -52,13 +52,13 @@ add_library(rosbag
 target_link_libraries(rosbag ${catkin_LIBRARIES} ${Boost_LIBRARIES}
   ${BZIP2_LIBRARIES}
 )
+add_dependencies(rosbag ${rosbag_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(record src/record.cpp)
 target_link_libraries(record rosbag)
 
 add_executable(play src/play.cpp)
 target_link_libraries(play rosbag)
-add_dependencies(play ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 
 if(NOT WIN32)
